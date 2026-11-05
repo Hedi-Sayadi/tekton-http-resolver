@@ -1,4 +1,4 @@
-# Tekton HTTP Resolver
+# Custom Tekton HTTP Resolver
 
 Custom Tekton resolver written in Go. It fetches a Tekton Pipeline or Task resource from a configured HTTP endpoint and returns the response through Tekton's resolution framework.
 
@@ -102,5 +102,3 @@ spec:
       script: |
         echo "Hello from a resolved Tekton Task"
 ```
-
-The resolver forwards this response to Tekton; it does not create or apply the resource directly to the cluster.
