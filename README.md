@@ -87,3 +87,20 @@ The example Tekton manifests demonstrate resolver references and event-triggered
 | `RESOLVER_SOURCE_URL` | Yes | HTTP endpoint returning the resource to resolve |
 
 The endpoint must return a successful HTTP response containing the Tekton resource data.
+
+For example, an endpoint such as `https://example.com/tekton/tasks/hello.yaml` should return a Tekton `Task` or `Pipeline` document:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: hello-world
+spec:
+  steps:
+    - name: hello
+      image: busybox
+      script: |
+        echo "Hello from a resolved Tekton Task"
+```
+
+The resolver forwards this response to Tekton; it does not create or apply the resource directly to the cluster.
