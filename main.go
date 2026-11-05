@@ -1,20 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	"github.com/tektoncd/pipeline/pkg/resolution/common"
 	"github.com/tektoncd/pipeline/pkg/resolution/resolver/framework"
-	"gopkg.in/yaml.v2"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/injection/sharedmain"
 )
 
@@ -58,28 +55,17 @@ func (r *HTTPResolver) ValidateParams(ctx context.Context, params []pipelinev1.P
 
 // Resolve fetches CRDs from HTTP URLs.
 func (r *HTTPResolver) Resolve(ctx context.Context, params []pipelinev1.Param) (framework.ResolvedResource, error) {
-	urls := []string{
-		// "https://a364-197-15-20-39.ngrok-free.app/pipelines/tasks",
-		// "https://a364-197-15-20-39.ngrok-free.app/pipelines/pipeline",
-		// "https://f3f8-197-15-81-207.ngrok-free.app/pipelines/pipeline",
-		"https://895d-2a02-8071-184-9a60-1c2-31ca-f8c5-9a0f.ngrok-free.app/pipelines/tasks",
+	sourceURL := os.Getenv("RESOLVER_SOURCE_URL")
+	if sourceURL == "" {
+		return nil, errors.New("RESOLVER_SOURCE_URL must be configured")
 	}
 
-	var crds []byte
-	for _, url := range urls {
-		err := applyYAMLFiles(url)
-		if err != nil {
-			log.Fatalf("Error applying YAML files: %v", err)
-		}
-		crd, err := fetchCRD(url)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch CRD from %s: %v", url, err)
-		}
-		crds = append(crds, crd...)
+	crd, err := fetchCRD(ctx, sourceURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch resource from %s: %w", sourceURL, err)
 	}
 
-	// Return the resolved resource containing the CRDs data
-	return &CRDResource{data: crds}, nil
+	return &CRDResource{data: crd}, nil
 }
 
 // CRDResource represents a resolved CRD fetched from an HTTP URL.
@@ -117,18 +103,21 @@ func (c *CRDResource) RefSource() *pipelinev1.RefSource {
 
 //		return body, nil
 //	}
-func fetchCRD(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+func fetchCRD(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("Error fetching CRD from %s: %v", url, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// Check for expected content type
-	if contentType := resp.Header.Get("Content-Type"); contentType != "application/json;charset=UTF-8" {
-		log.Printf("Unexpected content type received from %s: %s", url, contentType)
-		return nil, fmt.Errorf("unexpected content type: %s", contentType)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -138,57 +127,4 @@ func fetchCRD(url string) ([]byte, error) {
 	}
 
 	return body, nil
-}
-
-// func applyYAMLFiles(url string) error {
-// 	cmd := exec.Command("kubectl", "apply", "-f", url)
-// 	output, err := cmd.CombinedOutput()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	log.Printf("YAML files applied successfully from %s:\n%s", url, output)
-// 	return nil
-// }
-
-func applyYAMLFiles(clientset *kubernetes.Clientset, url string) error {
-	// 1. Download the YAML data
-	data, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to download YAML from %s: %v", url, err)
-	}
-	defer data.Body.Close()
-
-	// 2. Read the YAML data into a byte array
-	yamlData, err := io.ReadAll(data.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read YAML data: %v", err)
-	}
-
-	// 3. Decode the YAML data into Kubernetes runtime objects
-	decoder := yaml.NewDecoder(bytes.NewReader(yamlData))
-	var obj runtime.Object
-	for {
-		// Decode the next document in the YAML stream
-		err := decoder.Decode(&obj)
-		if err == io.EOF {
-			// Reached the end of the stream
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("failed to decode YAML: %v", err)
-		}
-
-		// 4. Apply the decoded object to the Kubernetes cluster
-		_, err = clientset.RESTClient().Post().
-			Namespace("").
-			Resource(obj.GetObjectKind().GroupVersionResource().Resource).
-			Body(obj).
-			Do(context.TODO())
-		if err != nil {
-			return fmt.Errorf("failed to apply object: %v", err)
-		}
-	}
-
-	return nil
 }

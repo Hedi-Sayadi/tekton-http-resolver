@@ -1,0 +1,16 @@
+# Go build output
+/tekton-resolver
+/bin/
+/dist/
+/coverage/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+!.env.example

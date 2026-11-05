@@ -1,18 +1,17 @@
-# Stage1: build the binary using the Go builder image.
-FROM golang:latest as builder
+FROM golang:1.21 AS builder
 
 WORKDIR /app
 
 COPY . .
 
-RUN go build -o tekton-resolver
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o tekton-resolver .
 
-# Stage2:  Copy the binary from the builder image into an alpine linux image.
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /app
 
 COPY --from=builder /app/tekton-resolver .
 
+USER 65532:65532
 
 ENTRYPOINT ["./tekton-resolver"]
